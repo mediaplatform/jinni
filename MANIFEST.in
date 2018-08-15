@@ -1,0 +1,5 @@
+recursive-include config *.yml
+recursive-include data *.txt
+include stack_modules/config/*
+include stack_modules/data/*
+include README.md

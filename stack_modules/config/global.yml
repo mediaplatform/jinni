@@ -1,0 +1,7 @@
+keyname: 'keyname'
+vpcid: 'vpc-1234'
+iam_role: 'my_iam_role'
+subnets: ['subnet-12345', 'subnet-67890']
+public_subnets: ['subnet-99999', 'subnet-888888']
+monitoring_security_group_export_name: CommonMonitorId-Prod
+admin_security_group_export_name: CommonAdminId-Prod

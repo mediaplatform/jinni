@@ -1,0 +1,10 @@
+apps:
+  example:
+      role: example
+      extra_roles: []
+      elb: True
+      elb_sticky: False
+      ports: 8080
+      elb_check_type: HTTP
+      elb_check_path: /healthcheck
+dns: "example"

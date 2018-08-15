@@ -1,0 +1,1587 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Conditions": {
+        "NotUseDBSnapshot": {
+            "Fn::Equals": [
+                {
+                    "Ref": "RDSSnapshot"
+                },
+                ""
+            ]
+        },
+        "UseDBSnapshot": {
+            "Fn::Not": [
+                {
+                    "Condition": "NotUseDBSnapshot"
+                }
+            ]
+        }
+    },
+    "Description": "Primetime Stack",
+    "Mappings": {
+        "RegionMap": {
+            "us-east-1": {
+                "AMIBASE": "ami-fce3c696",
+                "AMITRANSCODER": "ami-39091e53"
+            }
+        }
+    },
+    "Parameters": {
+        "BaseURL": {
+            "Default": "mediaplatformdev.com",
+            "Description": "This is the base URL for the environment",
+            "Type": "String"
+        },
+        "CertName": {
+            "AllowedValues": [
+                "arn:aws:iam::314826648217:server-certificate/star-mediaplatformdev-2017",
+                "arn:aws:iam::314826648217:server-certificate/mediaplatformQA_2017Mar05",
+                "arn:aws:iam::314826648217:server-certificate/mediaplatformSTG_2018"
+            ],
+            "ConstraintDescription": "must select a valid existing cert",
+            "Default": "arn:aws:iam::314826648217:server-certificate/mediaplatformQA_2017Mar05",
+            "Description": "This has to be the right certificate for the environment",
+            "Type": "String"
+        },
+        "DBAllocatedStorage": {
+            "ConstraintDescription": "must be between 5 and 1024Gb.",
+            "Description": "Keep blank if restoring from snapshot. The size of the database (Gb)",
+            "MaxValue": "1024",
+            "Type": "Number"
+        },
+        "DBName": {
+            "Default": "",
+            "Description": "The Instance identifier of the database. Must be unique",
+            "Type": "String"
+        },
+        "DBPassword": {
+            "Description": "The database admin account password. Only used if you're not restoring from an image",
+            "MaxLength": "41",
+            "NoEcho": true,
+            "Type": "String"
+        },
+        "DBSize": {
+            "AllowedValues": [
+                "db.m1.small",
+                "db.m3.medium",
+                "db.m1.large",
+                "db.m2.xlarge"
+            ],
+            "Default": "db.m3.medium",
+            "Description": "Database Instance Class",
+            "Type": "String"
+        },
+        "DBSubnetGroup": {
+            "Default": "mpinternalvpcsubnetgroup",
+            "Description": "This should probably not change, unless you know specifically what you're looking for. ",
+            "Type": "String"
+        },
+        "DBUser": {
+            "Description": "DB Username. Only used if you're not restoring from an image",
+            "MaxLength": "16",
+            "Type": "String"
+        },
+        "DeploymentEnvironment": {
+            "Default": "DEV",
+            "Description": "Environment you are building (DEV,QA,STG,PROD)",
+            "Type": "String"
+        },
+        "Product": {
+            "Default": "PT",
+            "Description": "The product that is being deployed",
+            "Type": "String"
+        },
+        "ProductVersion": {
+            "Default": "6.1",
+            "Description": "Version deploying (e.g. 6.1)",
+            "Type": "String"
+        },
+        "RDSDNSName": {
+            "Default": "pt-db-61",
+            "Description": "This is an easy to remember CNAME for the RDS instance.",
+            "Type": "String"
+        },
+        "RDSSnapshot": {
+            "Default": "",
+            "Description": "This is the name of the snapshot to be restored. You have to search for it in the RDS --> Snapshots area. It will look something like rds:<name><date>. If left blank will create a blank database",
+            "Type": "String"
+        },
+        "WebServerPort": {
+            "Default": "80",
+            "Description": "TCP/IP port of the web server",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "AllAccessForZookeeper": {
+            "Properties": {
+                "FromPort": "0",
+                "GroupId": {
+                    "Ref": "zookeepergroup"
+                },
+                "IpProtocol": "TCP",
+                "SourceSecurityGroupId": {
+                    "Ref": "zookeepergroup"
+                },
+                "ToPort": "65535"
+            },
+            "Type": "AWS::EC2::SecurityGroupIngress"
+        },
+        "DNSapp": {
+            "Properties": {
+                "HostedZoneName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "Name": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "*",
+                            ".",
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "ResourceRecords": [
+                    {
+                        "Fn::GetAtt": [
+                            "app",
+                            "DNSName"
+                        ]
+                    }
+                ],
+                "TTL": "900",
+                "Type": "CNAME"
+            },
+            "Type": "AWS::Route53::RecordSet"
+        },
+        "DNSdatacollector": {
+            "Properties": {
+                "HostedZoneName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "Name": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "dc-pt61",
+                            ".",
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "ResourceRecords": [
+                    {
+                        "Fn::GetAtt": [
+                            "datacollector",
+                            "DNSName"
+                        ]
+                    }
+                ],
+                "TTL": "900",
+                "Type": "CNAME"
+            },
+            "Type": "AWS::Route53::RecordSet"
+        },
+        "DNSmpadmin": {
+            "Properties": {
+                "HostedZoneName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "Name": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "admin",
+                            ".",
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "ResourceRecords": [
+                    {
+                        "Fn::GetAtt": [
+                            "mpadmin",
+                            "DNSName"
+                        ]
+                    }
+                ],
+                "TTL": "900",
+                "Type": "CNAME"
+            },
+            "Type": "AWS::Route53::RecordSet"
+        },
+        "DNSmpsso": {
+            "Properties": {
+                "HostedZoneName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "Name": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "mpsso61",
+                            ".",
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "ResourceRecords": [
+                    {
+                        "Fn::GetAtt": [
+                            "mpsso",
+                            "DNSName"
+                        ]
+                    }
+                ],
+                "TTL": "900",
+                "Type": "CNAME"
+            },
+            "Type": "AWS::Route53::RecordSet"
+        },
+        "MYDBDNS": {
+            "Properties": {
+                "HostedZoneName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "Name": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "RDSDNSName"
+                            },
+                            ".",
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "ResourceRecords": [
+                    {
+                        "Fn::GetAtt": [
+                            "MyDB",
+                            "Endpoint.Address"
+                        ]
+                    }
+                ],
+                "TTL": "900",
+                "Type": "CNAME"
+            },
+            "Type": "AWS::Route53::RecordSet"
+        },
+        "MyDB": {
+            "Properties": {
+                "AllocatedStorage": {
+                    "Ref": "DBAllocatedStorage"
+                },
+                "DBInstanceClass": {
+                    "Ref": "DBSize"
+                },
+                "DBInstanceIdentifier": {
+                    "Ref": "DBName"
+                },
+                "DBSnapshotIdentifier": {
+                    "Fn::If": [
+                        "UseDBSnapshot",
+                        {
+                            "Ref": "RDSSnapshot"
+                        },
+                        {
+                            "Ref": "AWS::NoValue"
+                        }
+                    ]
+                },
+                "DBSubnetGroupName": {
+                    "Ref": "DBSubnetGroup"
+                },
+                "Engine": "MySQL",
+                "EngineVersion": "5.5.40a",
+                "MasterUserPassword": {
+                    "Ref": "DBPassword"
+                },
+                "MasterUsername": {
+                    "Ref": "DBUser"
+                },
+                "PubliclyAccessible": "false",
+                "StorageType": "gp2",
+                "VPCSecurityGroups": [
+                    {
+                        "Ref": "VPCRDSSecurityGroup"
+                    }
+                ]
+            },
+            "Type": "AWS::RDS::DBInstance"
+        },
+        "VPCRDSSecurityGroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for VPCRDSSecurityGroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 3306,
+                        "IpProtocol": "TCP",
+                        "ToPort": 3306
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "amqgroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for amqgroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 61616,
+                        "IpProtocol": "TCP",
+                        "ToPort": 61616
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8161,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8161
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "app": {
+            "Properties": {
+                "ConnectionDrainingPolicy": {
+                    "Enabled": true,
+                    "Timeout": 300
+                },
+                "CrossZone": "true",
+                "HealthCheck": {
+                    "HealthyThreshold": "3",
+                    "Interval": "30",
+                    "Target": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "TCP",
+                                ":",
+                                {
+                                    "Ref": "WebServerPort"
+                                },
+                                ""
+                            ]
+                        ]
+                    },
+                    "Timeout": "5",
+                    "UnhealthyThreshold": "5"
+                },
+                "Instances": [
+                    {
+                        "Ref": "app0"
+                    },
+                    {
+                        "Ref": "app1"
+                    }
+                ],
+                "LBCookieStickinessPolicy": [
+                    {
+                        "PolicyName": "LBCookeStickinessPolicy"
+                    }
+                ],
+                "Listeners": [
+                    {
+                        "InstancePort": {
+                            "Ref": "WebServerPort"
+                        },
+                        "LoadBalancerPort": "80",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTP"
+                    },
+                    {
+                        "InstancePort": {
+                            "Ref": "WebServerPort"
+                        },
+                        "LoadBalancerPort": "443",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTPS",
+                        "SSLCertificateId": {
+                            "Ref": "CertName"
+                        }
+                    }
+                ],
+                "Scheme": "internet-facing",
+                "SecurityGroups": [
+                    {
+                        "Ref": "appgroup"
+                    }
+                ],
+                "Subnets": [
+                    "subnet-9fa496a5",
+                    "subnet-4bb3f33c",
+                    "subnet-4cf49015"
+                ]
+            },
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer"
+        },
+        "app0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMITRANSCODER"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "appgroup"
+                    }
+                ],
+                "SubnetId": "subnet-ca51a991",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "app"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptapp"
+                    },
+                    {
+                        "Key": "ptapp",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "app1": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMITRANSCODER"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "appgroup"
+                    }
+                ],
+                "SubnetId": "subnet-f586d883",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "app"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptapp"
+                    },
+                    {
+                        "Key": "ptapp",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "appgroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for appgroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8080,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8080
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "assetlifecycle0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.small",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "assetlifecyclegroup"
+                    }
+                ],
+                "SubnetId": "subnet-c75004fa",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "assetlifecycle"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptasset_lifecycle"
+                    },
+                    {
+                        "Key": "ptasset_lifecycle",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "assetlifecyclegroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for assetlifecyclegroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8080,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8080
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "datacollector": {
+            "Properties": {
+                "ConnectionDrainingPolicy": {
+                    "Enabled": true,
+                    "Timeout": 300
+                },
+                "CrossZone": "true",
+                "HealthCheck": {
+                    "HealthyThreshold": "3",
+                    "Interval": "30",
+                    "Target": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "TCP",
+                                ":",
+                                {
+                                    "Ref": "WebServerPort"
+                                },
+                                ""
+                            ]
+                        ]
+                    },
+                    "Timeout": "5",
+                    "UnhealthyThreshold": "5"
+                },
+                "Instances": [
+                    {
+                        "Ref": "datacollector0"
+                    }
+                ],
+                "LBCookieStickinessPolicy": [
+                    {
+                        "PolicyName": "LBCookeStickinessPolicy"
+                    }
+                ],
+                "Listeners": [
+                    {
+                        "InstancePort": {
+                            "Ref": "WebServerPort"
+                        },
+                        "LoadBalancerPort": "80",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTP"
+                    },
+                    {
+                        "InstancePort": {
+                            "Ref": "WebServerPort"
+                        },
+                        "LoadBalancerPort": "443",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTPS",
+                        "SSLCertificateId": {
+                            "Ref": "CertName"
+                        }
+                    }
+                ],
+                "Scheme": "internet-facing",
+                "SecurityGroups": [
+                    {
+                        "Ref": "datacollectorgroup"
+                    }
+                ],
+                "Subnets": [
+                    "subnet-9fa496a5",
+                    "subnet-4bb3f33c",
+                    "subnet-4cf49015"
+                ]
+            },
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer"
+        },
+        "datacollector0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "datacollectorgroup"
+                    }
+                ],
+                "SubnetId": "subnet-f586d883",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "datacollector"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptdata_collector"
+                    },
+                    {
+                        "Key": "ptdata_collector",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "datacollectorgroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for datacollectorgroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8080,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8080
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "datacollectorlistenener0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.small",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "datacollectorlistenenergroup"
+                    }
+                ],
+                "SubnetId": "subnet-ca51a991",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "datacollector_listenener"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptdata_collector_listener"
+                    },
+                    {
+                        "Key": "ptdata_collector_listener",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "datacollectorlistenenergroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for datacollectorlistenenergroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8080,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8080
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "mpadmin": {
+            "Properties": {
+                "ConnectionDrainingPolicy": {
+                    "Enabled": true,
+                    "Timeout": 300
+                },
+                "CrossZone": "true",
+                "HealthCheck": {
+                    "HealthyThreshold": "3",
+                    "Interval": "30",
+                    "Target": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "HTTP",
+                                ":",
+                                {
+                                    "Ref": "WebServerPort"
+                                },
+                                "/"
+                            ]
+                        ]
+                    },
+                    "Timeout": "5",
+                    "UnhealthyThreshold": "5"
+                },
+                "Instances": [
+                    {
+                        "Ref": "mpadmin0"
+                    }
+                ],
+                "LBCookieStickinessPolicy": [
+                    {
+                        "PolicyName": "LBCookeStickinessPolicy"
+                    }
+                ],
+                "Listeners": [
+                    {
+                        "InstancePort": {
+                            "Ref": "WebServerPort"
+                        },
+                        "LoadBalancerPort": "80",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTP"
+                    },
+                    {
+                        "InstancePort": {
+                            "Ref": "WebServerPort"
+                        },
+                        "LoadBalancerPort": "443",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTPS",
+                        "SSLCertificateId": {
+                            "Ref": "CertName"
+                        }
+                    }
+                ],
+                "Scheme": "internet-facing",
+                "SecurityGroups": [
+                    {
+                        "Ref": "mpadmingroup"
+                    }
+                ],
+                "Subnets": [
+                    "subnet-9fa496a5",
+                    "subnet-4bb3f33c",
+                    "subnet-4cf49015"
+                ]
+            },
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer"
+        },
+        "mpadmin0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "mpadmingroup"
+                    }
+                ],
+                "SubnetId": "subnet-ca51a991",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "mpadmin"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptmpadmin"
+                    },
+                    {
+                        "Key": "ptmpadmin",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "mpadmingroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for mpadmingroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "mpsso": {
+            "Properties": {
+                "ConnectionDrainingPolicy": {
+                    "Enabled": true,
+                    "Timeout": 300
+                },
+                "CrossZone": "true",
+                "HealthCheck": {
+                    "HealthyThreshold": "3",
+                    "Interval": "30",
+                    "Target": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "TCP",
+                                ":",
+                                {
+                                    "Ref": "WebServerPort"
+                                },
+                                ""
+                            ]
+                        ]
+                    },
+                    "Timeout": "5",
+                    "UnhealthyThreshold": "5"
+                },
+                "Instances": [
+                    {
+                        "Ref": "mpsso0"
+                    }
+                ],
+                "LBCookieStickinessPolicy": [
+                    {
+                        "PolicyName": "LBCookeStickinessPolicy"
+                    }
+                ],
+                "Listeners": [
+                    {
+                        "InstancePort": {
+                            "Ref": "WebServerPort"
+                        },
+                        "LoadBalancerPort": "80",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTP"
+                    },
+                    {
+                        "InstancePort": {
+                            "Ref": "WebServerPort"
+                        },
+                        "LoadBalancerPort": "443",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTPS",
+                        "SSLCertificateId": {
+                            "Ref": "CertName"
+                        }
+                    }
+                ],
+                "Scheme": "internet-facing",
+                "SecurityGroups": [
+                    {
+                        "Ref": "mpssogroup"
+                    }
+                ],
+                "Subnets": [
+                    "subnet-9fa496a5",
+                    "subnet-4bb3f33c",
+                    "subnet-4cf49015"
+                ]
+            },
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer"
+        },
+        "mpsso0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "mpssogroup"
+                    }
+                ],
+                "SubnetId": "subnet-ca51a991",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "mpsso"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "mpsso"
+                    },
+                    {
+                        "Key": "mpsso",
+                        "Value": ""
+                    },
+                    {
+                        "Key": "mpsso_subsystem",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "mpssogroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for mpssogroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "search0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "searchgroup"
+                    }
+                ],
+                "SubnetId": "subnet-c75004fa",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "search"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptsearch"
+                    },
+                    {
+                        "Key": "ptsearch",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "searchgroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for searchgroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "smartedgeppscan0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.small",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "smartedgeppscangroup"
+                    }
+                ],
+                "SubnetId": "subnet-c75004fa",
+                "Tags": [
+                    {
+                        "Key": "Product",
+                        "Value": {
+                            "Ref": "Product"
+                        }
+                    },
+                    {
+                        "Key": "Version",
+                        "Value": {
+                            "Ref": "ProductVersion"
+                        }
+                    },
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "smartedge_ppscan"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "smedge_scanner"
+                    },
+                    {
+                        "Key": "smedge_scanner",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "smartedgeppscangroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for smartedgeppscangroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8080,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8080
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "solrgroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for solrgroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8983,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8983
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "zookeepergroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for zookeepergroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "192.168.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 2181,
+                        "IpProtocol": "TCP",
+                        "ToPort": 2181
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        }
+    }
+}

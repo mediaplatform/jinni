@@ -1,0 +1,567 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Template for Solr, Zookeeper, AMQ Stack",
+    "Mappings": {
+        "RegionMap": {
+            "us-east-1": {
+                "AMIBASE": "ami-fce3c696",
+                "AMITRANSCODER": "ami-39091e53"
+            }
+        }
+    },
+    "Parameters": {
+        "BaseURL": {
+            "Default": "mediaplatformdev.com",
+            "Description": "This is the base URL for the environment",
+            "Type": "String"
+        },
+        "CertName": {
+            "AllowedValues": [
+                "arn:aws:iam::314826648217:server-certificate/star-mediaplatformdev-2017",
+                "arn:aws:iam::314826648217:server-certificate/mediaplatformQA_2017Mar05"
+            ],
+            "ConstraintDescription": "must select a valid existing cert",
+            "Default": "arn:aws:iam::314826648217:server-certificate/mediaplatformQA_2017Mar05",
+            "Description": "This has to be the right certificate for the environment",
+            "Type": "String"
+        },
+        "DeploymentEnvironment": {
+            "Default": "DEV",
+            "Description": "Environment you are building (DEV,QA,STG,PROD)",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "AllAccessForZookeeper": {
+            "Properties": {
+                "FromPort": "0",
+                "GroupId": {
+                    "Ref": "zookeepergroup"
+                },
+                "IpProtocol": "TCP",
+                "SourceSecurityGroupId": {
+                    "Ref": "zookeepergroup"
+                },
+                "ToPort": "65535"
+            },
+            "Type": "AWS::EC2::SecurityGroupIngress"
+        },
+        "DNSsolr": {
+            "Properties": {
+                "HostedZoneName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "Name": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "solr61",
+                            ".",
+                            {
+                                "Ref": "BaseURL"
+                            },
+                            "."
+                        ]
+                    ]
+                },
+                "ResourceRecords": [
+                    {
+                        "Fn::GetAtt": [
+                            "solr",
+                            "DNSName"
+                        ]
+                    }
+                ],
+                "TTL": "900",
+                "Type": "CNAME"
+            },
+            "Type": "AWS::Route53::RecordSet"
+        },
+        "amq0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.small",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "amqgroup"
+                    }
+                ],
+                "SubnetId": "subnet-ca51a991",
+                "Tags": [
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "amq"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptactivemq"
+                    },
+                    {
+                        "Key": "ptactivemq",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "amq1": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.small",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "amqgroup"
+                    }
+                ],
+                "SubnetId": "subnet-ca51a991",
+                "Tags": [
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "amq"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "ptactivemq"
+                    },
+                    {
+                        "Key": "ptactivemq",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "amqgroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for amqgroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "TCP",
+                        "ToPort": 443
+                    },
+                    {
+                        "CidrIp": "192.186.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 61616,
+                        "IpProtocol": "TCP",
+                        "ToPort": 61616
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8161,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8161
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "solr": {
+            "Properties": {
+                "ConnectionDrainingPolicy": {
+                    "Enabled": true,
+                    "Timeout": 300
+                },
+                "CrossZone": "true",
+                "HealthCheck": {
+                    "HealthyThreshold": "3",
+                    "Interval": "30",
+                    "Target": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "TCP",
+                                ":",
+                                8983,
+                                ""
+                            ]
+                        ]
+                    },
+                    "Timeout": "5",
+                    "UnhealthyThreshold": "5"
+                },
+                "Instances": [
+                    {
+                        "Ref": "solr0"
+                    },
+                    {
+                        "Ref": "solr1"
+                    }
+                ],
+                "LBCookieStickinessPolicy": [
+                    {
+                        "PolicyName": "LBCookeStickinessPolicy"
+                    }
+                ],
+                "Listeners": [
+                    {
+                        "InstancePort": 8983,
+                        "LoadBalancerPort": "80",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTP"
+                    },
+                    {
+                        "InstancePort": 8983,
+                        "LoadBalancerPort": "443",
+                        "PolicyNames": [
+                            "LBCookeStickinessPolicy"
+                        ],
+                        "Protocol": "HTTPS",
+                        "SSLCertificateId": {
+                            "Ref": "CertName"
+                        }
+                    }
+                ],
+                "Scheme": "internal",
+                "SecurityGroups": [
+                    {
+                        "Ref": "solrgroup"
+                    }
+                ],
+                "Subnets": [
+                    "subnet-9fa496a5",
+                    "subnet-4bb3f33c",
+                    "subnet-4cf49015"
+                ]
+            },
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer"
+        },
+        "solr0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "solrgroup"
+                    }
+                ],
+                "SubnetId": "subnet-f586d883",
+                "Tags": [
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "solr"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "solr"
+                    },
+                    {
+                        "Key": "solr",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "solr1": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "solrgroup"
+                    }
+                ],
+                "SubnetId": "subnet-ca51a991",
+                "Tags": [
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "solr"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "solr"
+                    },
+                    {
+                        "Key": "solr",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "solrgroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for solrgroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "TCP",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "192.186.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8983,
+                        "IpProtocol": "TCP",
+                        "ToPort": 8983
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "zookeeper0": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "zookeepergroup"
+                    }
+                ],
+                "SubnetId": "subnet-c75004fa",
+                "Tags": [
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "zookeeper"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "zookeeper"
+                    },
+                    {
+                        "Key": "zookeeper",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "zookeeper1": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "zookeepergroup"
+                    }
+                ],
+                "SubnetId": "subnet-f586d883",
+                "Tags": [
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "zookeeper"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "zookeeper"
+                    },
+                    {
+                        "Key": "zookeeper",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "zookeeper2": {
+            "Properties": {
+                "IamInstanceProfile": "s3_access",
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIBASE"
+                    ]
+                },
+                "InstanceType": "t2.medium",
+                "KeyName": "ivtec2dev",
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "zookeepergroup"
+                    }
+                ],
+                "SubnetId": "subnet-ca51a991",
+                "Tags": [
+                    {
+                        "Key": "env",
+                        "Value": {
+                            "Ref": "DeploymentEnvironment"
+                        }
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "zookeeper"
+                    },
+                    {
+                        "Key": "Role",
+                        "Value": "zookeeper"
+                    },
+                    {
+                        "Key": "zookeeper",
+                        "Value": ""
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "zookeepergroup": {
+            "Properties": {
+                "GroupDescription": "Security Group for zookeepergroup Access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "192.186.2.0/24",
+                        "FromPort": 0,
+                        "IpProtocol": "TCP",
+                        "ToPort": 65535
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 2181,
+                        "IpProtocol": "TCP",
+                        "ToPort": 2181
+                    },
+                    {
+                        "CidrIp": "10.0.0.0/16",
+                        "FromPort": 22,
+                        "IpProtocol": "TCP",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": "vpc-c1163ca4"
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        }
+    }
+}

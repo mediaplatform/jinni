@@ -1,0 +1,10 @@
+#!/bin/bash -x
+
+sleep 30
+health_status_url="http://localhost:8080/healthcheck"
+exit_status=1
+if [ $(curl -sL -w "%{http_code}\\n" $health_status_url -o /tmp/temp_isUp --connect-timeout 3 --max-time 5) = "200" ]
+then
+    exit_status=0
+fi
+cfn-signal -e $exit_status --resource AutoScalingGroup --stack ${AWS::StackName} --region ${AWS::Region}

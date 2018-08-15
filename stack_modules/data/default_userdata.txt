@@ -1,0 +1,8 @@
+#!/bin/bash -x
+
+INSTANCE_ID="`wget -qO- http://instance-data/latest/meta-data/instance-id`"
+REGION="`wget -qO- http://instance-data/latest/meta-data/placement/availability-zone | awk 'BEGIN { FS="-"; } { print $1 "-" $2 "-" gsub(/[a-z]/,"",$3)}'`"
+DEPLOY_ENV="`aws ec2 describe-tags --filters "Name=resource-id,Values=$INSTANCE_ID" "Name=key,Values=env" --region $REGION --output=text | awk '{print $5}' | tr '[:upper:]' '[:lower:]'`"
+DEPLOY_ROLE="`aws ec2 describe-tags --filters "Name=resource-id,Values=$INSTANCE_ID" "Name=key,Values=Role" --region $REGION --output=text | awk '{print $5}' | tr '[:upper:]' '[:lower:]'`"
+
+cfn-signal -s true --resource $$as_name --stack ${AWS::StackName} --region ${AWS::Region}

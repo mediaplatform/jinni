@@ -1,0 +1,10 @@
+apps:
+  k8master:
+      role: k8_master
+      extra_roles: []
+      elb: True
+      ports: 6443
+      elb_check_type: TCP
+      elb_check_path: ""
+      dns: "*"
+      cidr: '10.1.0.0/16'
